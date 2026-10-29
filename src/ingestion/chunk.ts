@@ -17,7 +17,9 @@ export async function chunkPolicy(body: string): Promise<Chunk[]> {
     // A section of 1,000 characters or less comes back as one piece.
     for (const piece of await splitter.splitText(text)) {
       // Put the heading path in the text itself, so both searches can see it.
-      chunks.push({ content: `${section}\n\n${piece}`, metadata: { section } });
+      // (Text before the first heading, such as a PDF's title page, has no path to add.)
+      const content = section ? `${section}\n\n${piece}` : piece;
+      chunks.push({ content, metadata: { section } });
     }
   }
   return chunks;

@@ -12,6 +12,9 @@ classify → expand → retrieve ×N → research ⇄ audit → synthesize
                                               ↘ human review ↗
 ```
 
+**Learning from this repo?** Start with [`lessons/`](lessons/README.md): one page per piece, in
+the order it was built, each with the commands to run and the output to expect.
+
 ## Stack
 
 | Piece | Choice |
@@ -26,7 +29,7 @@ classify → expand → retrieve ×N → research ⇄ audit → synthesize
 
 - [x] 0. Project setup
 - [x] 1. Database (Docker + pgvector) and the made-up policies
-- [ ] 2. Ingestion (chunk → embed → store) and hybrid search, plus a recall check
+- [x] 2. Ingestion (chunk → embed → store) and hybrid search, plus a recall check
 - [ ] 3. The graph with fake nodes: state, reducers, edges, the revise loop (no LLM, no cost)
 - [ ] 4. Real Gemini nodes, one at a time, with structured output
 - [ ] 5. Parallel retrieval with `Send`

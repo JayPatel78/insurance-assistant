@@ -12,14 +12,21 @@ and LangGraph are all new.
 ## How to work with Jay
 
 - Teach while building. One roadmap step at a time (see `README.md`). For each step: write the
-  code, explain what each piece does and why, have Jay run the commands, then give a small
-  exercise (something to run or change and predict the result).
+  code, explain what each piece does and why, and have Jay run the commands. No end-of-step
+  quiz questions or exercises: Jay asked to skip them (2026-10-29).
 - Jay likes to see a step working before moving to the next; don't run ahead several steps.
 - Install each package in the step that first needs it, not all up front, so it's clear what
   each one is for. Check the current version with `npm view` before installing.
 - The Gemini API key lives only in `.env` (git-ignored). Never ask Jay to paste it into chat;
   check it's set with `grep -qE '^GOOGLE_API_KEY=.+' .env` without printing it.
 - Commit only when Jay asks.
+- The repo is public (github.com/JayPatel78/insurance-assistant) so interns can learn from it.
+  After each piece (each "next"), add a page to `lessons/`, numbered in build order
+  (`09-recall-check.md`, …), and a row to `lessons/README.md`. Follow the existing pages'
+  layout: what we built and why, new ideas, packages and methods, our code, run it with
+  expected output, check yourself. Write for a reader who wasn't in the conversation, and fix
+  the previous page's "Next" link. Don't put Jay's own questions in the pages; if an answer
+  explains something the page needs, fold it in as plain explanation.
 
 ## Stack and conventions
 
@@ -49,33 +56,58 @@ and LangGraph are all new.
 
 ## Where things stand
 
-- **Done:** step 0 (project setup) and step 1 (Docker + pgvector 0.8.7, `policy_documents` and
-  `policy_chunks` tables with HNSW + GIN indexes, six made-up policies in `policies/`).
+- **Done:** steps 0, 1 and 2. Step 2 in short:
+  - `src/ingestion/`: `policy-file.ts` (front-matter header + SHA-256 of the whole file),
+    `chunk.ts` (one chunk per `#`/`##`/`###` section; the heading path goes at the top of
+    `content` and in `metadata.section`; `RecursiveCharacterTextSplitter` 1000/150 only for
+    long sections), `ingest.ts` (`npm run ingest [-- --force]`: skips unchanged hashes, embeds
+    before `BEGIN`, one transaction per policy), `preview.ts`, and the PDF path `pdf-text.ts` +
+    `try-pdf.ts` (`unpdf` 1.9.1, since 2.x needs Node 24; `restoreHeadings` turns numbered lines
+    back into headings; `policies/pdf/` is a sample and is not ingested).
+  - `src/llm/embeddings.ts`: `gemini-embedding-001` at 768 dims, separate `RETRIEVAL_DOCUMENT`
+    and `RETRIEVAL_QUERY` embedders, `checkSize` catches the wrapper's silent empty vectors.
+  - `src/retrieval/`: `findPolicyInForce(plan, country, dateOfTreatment)` returns one document or
+    null (throws if versions overlap); `search.ts` has `vectorSearch`, `keywordSearch` and
+    `hybridSearch` (RRF, k = 60, 40 candidates per list, merged in TypeScript, not in SQL).
+  - `src/eval/`: `npm run eval:recall`, recall@3 = 96% vector and hybrid, 29% keyword, on 17
+    labelled questions. The only miss: Silver's whole question as one query misses
+    `6. Waiting periods` (it needs 4 sections, more than K): that's the `expand` node's job.
+    In step 4, re-run the same labels with the real expander's queries.
 - One deliberate change from the guide: chunks don't carry `plan_code`/`jurisdiction`.
   Retrieval first resolves the ONE document in force for plan + country + date, then searches
   only that document's chunks by `document_id`, so an expired version can't leak into answers.
 - The policies' traps (expired version, Silver waiting period, Essential's override, Platinum's
   prompt injection, US spelling) are listed in `README.md` under "Test data".
-- Already demonstrated: Postgres stems "authorisation" to `authoris` and "authorization" to
-  `author`, so keyword search for "pre-authorisation" misses the US policy. Hybrid search
-  (vector + keyword, merged with RRF) is the fix step 2 should show.
+- Demos and evals use the fixed date `2026-10-27`, so their expected output never changes.
 
-## Next: step 2 (ingestion + hybrid search)
+## Next: step 3 (the graph with fake nodes)
 
-Needs `GOOGLE_API_KEY` in `.env` (embeddings are a Gemini call). Planned shape:
+No LLM calls: the agents are fake functions with the real input/output shapes, so the graph
+can be learned at zero cost. Planned pieces:
 
-1. Read each `policies/*.md`, parse the front-matter header (plan_code, jurisdiction, version,
-   title, effective_from, effective_to), hash the file, skip it if the hash is already stored.
-2. Section-aware chunking: split on the `##` / `###` headings, keep the heading in `metadata`,
-   fall back to ~1,000 chars with 150 overlap (`@langchain/textsplitters`) for long sections.
-3. Embed in batches with `gemini-embedding-001` at **768 dimensions**. First check whether the
-   LangChain embeddings wrapper can set the output size; if not, call `@google/genai` directly.
-4. Insert document + chunks in one transaction.
-5. Hybrid search: resolve the in-force document, then run the RRF query from guide B.3 against
-   its chunks. Show vector-only vs keyword-only vs hybrid results side by side.
-6. A small recall@10 check: ~10–15 labelled questions per the guide's advice, including the
-   traps above.
-7. Convert one policy to PDF and ingest it via text extraction (`unpdf`), so Jay sees that path too.
+1. Done (`lessons/11`). `@langchain/langgraph` 1.5.3 installed (pulls in `zod` as a peer).
+   State with `Annotation.Root` as in the guide (`StateSchema` is the newer Zod-based
+   alternative; not deprecated either way). Fake `classify` → `expand`.
+   Layout (Jay's choice, 2026-10-29): `src/graph/state.ts`, `graph.ts` (all addNode/addEdge
+   wiring), `try-graph.ts`; one file per node in `src/graph/nodes/` (fakes say FAKE at the
+   top; `log.ts` is the shared print helper); routing functions for conditional edges in
+   `src/graph/edges/` (created in piece 3 with the first one).
+2. Done (`lessons/12`). `evidence: SearchHit[]` with a reducer (append + `dedupeById`,
+   default `[]`). Real `retrieve` node in `src/graph/nodes/retrieve.ts`: findPolicyInForce +
+   hybridSearch, top 3 per query, looping over the queries (the `Send` fan-out is step 5).
+   `try:graph` now makes 3 embedding calls; Gold FR main question: 9 hits → 6 chunks, and
+   `1. Definitions` is not among them (the fake queries don't ask for it).
+3. Done (`lessons/13`). `draft`, `audit: Audit | null`, `revisions` (sum reducer), `final`
+   in state; types `Claim`/`Draft`/`Audit`/`Final` in `state.ts` (Zod in step 4). Fake
+   `research` (one claim per chunk; first sentence, or the whole first paragraph for claims
+   the audit flagged), `auditDraft` (no claims → reject; quote shorter than its paragraph →
+   revise; else pass), `synthesize`, placeholder `humanReview`. Routers `afterClassify`,
+   `afterAudit` (`MAX_REVISIONS = 2`) in `edges/`, printing via `route()`. The node is
+   `auditDraft`, not the guide's `audit`: LangGraph throws when a node name equals a state
+   field ("audit is already being used as a state attribute…"); the guide's C.6 has this bug.
+   `try:graph` runs 3 cases: Gold FR (loop once), medical advice (END after classify),
+   BRONZE FR (no policy → reject → humanReview → synthesize). The 2-revision cap isn't hit.
+4. Seeing and guarding the graph: draw it as Mermaid, `recursionLimit`, supersteps. Show the
+   2-revision cap with an auditor that never passes, and what `recursionLimit` does without it.
 
-Then step 3: the LangGraph graph with fake (no-LLM) nodes, to learn state, reducers,
-conditional edges and the revise loop at zero cost.
+Then step 4: real Gemini nodes, one at a time, with structured output.
